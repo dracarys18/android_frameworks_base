@@ -15,6 +15,10 @@
      limitations under the License.
 -->
 <resources>
+    <!-- From SignalStrength -->
+    <java-symbol type="integer" name="config_LTE_antenna_bar_quantity_metric" />
+    <java-symbol type="integer" name="config_LTE_RSRP_threshold_type" />
+
     <!-- ADB notification -->
     <java-symbol type="string" name="adb_net_active_notification_title" />
     <java-symbol type="string" name="adb_both_active_notification_title" />
