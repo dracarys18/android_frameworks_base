@@ -25,12 +25,7 @@ import android.content.pm.LauncherApps;
 import android.content.pm.LauncherApps.ShortcutQuery;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ShortcutInfo;
-import android.content.res.Resources;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.PaintFlagsDrawFilter;
-import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.ScaleDrawable;
 import android.os.Bundle;
@@ -77,6 +72,9 @@ public class LockscreenFragment extends PreferenceFragment {
     public static final String LOCKSCREEN_LEFT_UNLOCK = "sysui_keyguard_left_unlock";
     public static final String LOCKSCREEN_RIGHT_BUTTON = "sysui_keyguard_right";
     public static final String LOCKSCREEN_RIGHT_UNLOCK = "sysui_keyguard_right_unlock";
+    public static final String LOCKSCREEN_SHORTCUT_CAMERA = "c";
+    public static final String LOCKSCREEN_SHORTCUT_NONE = "n";
+    public static final String LOCKSCREEN_SHORTCUT_VOICE_ASSIST = "v";
 
     private final ArrayList<Tunable> mTunables = new ArrayList<>();
     private TunerService mTunerService;
@@ -101,7 +99,7 @@ public class LockscreenFragment extends PreferenceFragment {
         Preference shortcut = findPreference(buttonSetting);
         SwitchPreference unlock = (SwitchPreference) findPreference(unlockKey);
         addTunable((k, v) -> {
-            boolean visible = !TextUtils.isEmpty(v) && !v.equals("none");
+            boolean visible = !TextUtils.isEmpty(v) && (v.contains("/") || v.contains("::"));
             unlock.setVisible(visible);
             setSummary(shortcut, v);
         }, buttonSetting);
@@ -134,7 +132,11 @@ public class LockscreenFragment extends PreferenceFragment {
             ActivityInfo info = getActivityinfo(getContext(), value);
             shortcut.setSummary(info != null ? info.loadLabel(getContext().getPackageManager())
                     : null);
-        } else if (value.equals("none")) {
+        } else if (value.equals(LOCKSCREEN_SHORTCUT_VOICE_ASSIST)) {
+            shortcut.setSummary(R.string.accessibility_voice_assist_button);
+        } else if (value.equals(LOCKSCREEN_SHORTCUT_CAMERA)) {
+            shortcut.setSummary(R.string.accessibility_camera_button);
+        } else {
             shortcut.setSummary(R.string.lockscreen_none);
         } else {
             shortcut.setSummary(R.string.lockscreen_default);
@@ -347,32 +349,25 @@ public class LockscreenFragment extends PreferenceFragment {
                     return new ShortcutButton(mContext, buttonStr);
                 } else if (buttonStr.contains("/")) {
                     return new ActivityButton(mContext, buttonStr);
-                } else if (buttonStr.equals("none")) {
-                    return new HiddenButton();
+                } else if (buttonStr.equals(LOCKSCREEN_SHORTCUT_CAMERA) ||
+                        buttonStr.equals(LOCKSCREEN_SHORTCUT_VOICE_ASSIST)) {
+                    return new FakeButton(buttonStr);
+                } else if (buttonStr.equals(LOCKSCREEN_SHORTCUT_NONE)) {
+                    return new FakeButton("");
                 }
             }
             return null;
         }
     }
 
-    private static class ShortcutButton implements IntentButton {
-        private Shortcut mShortcut;
-        private IconState mIconState;
-        private Context mContext;
-        private boolean mInitDone;
-        private String mShortcutString;
-        private int mSize;
+    private static class FakeButton implements IntentButton {
+        private final IconState mIconState;
 
-        public ShortcutButton(Context context, String shortcutString) {
-            mContext = context;
-            mShortcutString = shortcutString;
+        public FakeButton(String description) {
             mIconState = new IconState();
-            mIconState.isVisible = true;
-            mIconState.drawable = mContext.getResources().getDrawable(android.R.drawable.sym_def_app_icon);
-            mSize = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
-                    mContext.getResources().getDisplayMetrics());
-            mIconState.drawable = new ScalingDrawableWrapper(mIconState.drawable,
-                    mSize / (float) mIconState.drawable.getIntrinsicWidth());
+            mIconState.contentDescription = description;
+            mIconState.isVisible = false;
+            mIconState.drawable = new ColorDrawable(0);
             mIconState.tint = false;
             mIconState.isDefaultButton = false;
             init();
@@ -401,59 +396,86 @@ public class LockscreenFragment extends PreferenceFragment {
 
         @Override
         public Intent getIntent() {
-            if (!mInitDone) {
-                init();
-            }
-            if (mShortcut != null) {
-                return mShortcut.intent;
-            }
-            return null;
+            // Just a placeholder
+            return new Intent(Intent.ACTION_DIAL);
         }
     }
 
-    private static class ActivityButton implements IntentButton {
-        private Intent mIntent;
+    private static class ShortcutButton implements IntentButton {
+        private final Context mContext;
+        private final String mShortcut;
         private IconState mIconState;
-        private ComponentName mComponentName;
-        private Context mContext;
-        private boolean mInitDone;
-        private int mSize;
+        private Intent mIntent;
 
-        public ActivityButton(Context context, String componentName) {
+        public ShortcutButton(Context context, String shortcut) {
             mContext = context;
-            mComponentName = ComponentName.unflattenFromString(componentName);
-            mIconState = new IconState();
-            mIconState.isVisible = true;
-            mIconState.drawable = mContext.getResources().getDrawable(android.R.drawable.sym_def_app_icon);
-            mSize = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
-                    mContext.getResources().getDisplayMetrics());
-            mIconState.drawable = new ScalingDrawableWrapper(mIconState.drawable,
-                    mSize / (float) mIconState.drawable.getIntrinsicWidth());
-            mIconState.tint = false;
-            mIconState.isDefaultButton = false;
-            init();
-        }
-
-        private void init() {
-            try {
-                ActivityInfo info = mContext.getPackageManager().getActivityInfo(mComponentName, 0);
-                // we need to flatten AdaptiveIconDrawable layers to a single drawable
-                mIconState.drawable = getBitmapDrawable(
-                        mContext.getResources(), info.loadIcon(mContext.getPackageManager())).mutate();
-                mIconState.contentDescription = info.loadLabel(mContext.getPackageManager());
-                mIconState.drawable = new ScalingDrawableWrapper(mIconState.drawable,
-                        mSize / (float) mIconState.drawable.getIntrinsicWidth());
-                mIntent = new Intent().setComponent(mComponentName);
-                mInitDone = true;
-            } catch (NameNotFoundException e) {
-            }
+            mShortcut = shortcut;
         }
 
         @Override
         public IconState getIcon() {
-            if (!mInitDone) {
-                init();
+            mIconState = new IconState();
+            mIconState.tint = false;
+
+            Shortcut shortcut = getShortcutInfo(mContext, mShortcut);
+            if (shortcut == null) {
+                mIconState.contentDescription = "";
+                mIconState.isVisible = false;
+                mIconState.drawable = new ColorDrawable(0);
+                mIntent = new Intent(Intent.ACTION_DIAL);
+                return mIconState;
             }
+
+            mIntent = shortcut.intent;
+            mIconState.isVisible = true;
+            mIconState.drawable = shortcut.icon.loadDrawable(mContext).mutate();
+            mIconState.contentDescription = shortcut.label;
+            int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
+                    mContext.getResources().getDisplayMetrics());
+            mIconState.drawable = new ScalingDrawableWrapper(mIconState.drawable,
+                    size / (float) mIconState.drawable.getIntrinsicWidth());
+            return mIconState;
+        }
+
+        @Override
+        public Intent getIntent() {
+            return mIntent;
+        }
+    }
+
+    private static class ActivityButton implements IntentButton {
+        private final Context mContext;
+        private final String mInfo;
+        private IconState mIconState;
+        private Intent mIntent;
+
+        public ActivityButton(Context context, String info) {
+            mContext = context;
+            mInfo = info;
+        }
+
+        @Override
+        public IconState getIcon() {
+            mIconState = new IconState();
+            mIconState.tint = false;
+
+            ActivityInfo info = getActivityinfo(mContext, mInfo);
+            if (info == null) {
+                mIconState.contentDescription = "";
+                mIconState.isVisible = false;
+                mIconState.drawable = new ColorDrawable(0);
+                mIntent = new Intent(Intent.ACTION_DIAL);
+                return mIconState;
+            }
+
+            mIntent = new Intent().setComponent(new ComponentName(info.packageName, info.name));
+            mIconState.isVisible = true;
+            mIconState.drawable = info.loadIcon(mContext.getPackageManager()).mutate();
+            mIconState.contentDescription = info.loadLabel(mContext.getPackageManager());
+            int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
+                    mContext.getResources().getDisplayMetrics());
+            mIconState.drawable = new ScalingDrawableWrapper(mIconState.drawable,
+                    size / (float) mIconState.drawable.getIntrinsicWidth());
             return mIconState;
         }
 

@@ -15,6 +15,9 @@
 package com.android.systemui.tuner;
 
 import static com.android.systemui.tuner.LockscreenFragment.LOCKSCREEN_LEFT_BUTTON;
+import static com.android.systemui.tuner.LockscreenFragment.LOCKSCREEN_SHORTCUT_CAMERA;
+import static com.android.systemui.tuner.LockscreenFragment.LOCKSCREEN_SHORTCUT_NONE;
+import static com.android.systemui.tuner.LockscreenFragment.LOCKSCREEN_SHORTCUT_VOICE_ASSIST;
 
 import android.content.Context;
 import android.content.pm.LauncherActivityInfo;
@@ -29,6 +32,7 @@ import android.support.v7.preference.PreferenceCategory;
 import android.support.v7.preference.PreferenceScreen;
 import android.support.v7.preference.PreferenceViewHolder;
 
+import com.android.systemui.assist.AssistManager;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.tuner.ShortcutParser.Shortcut;
@@ -40,8 +44,9 @@ import java.util.List;
 public class ShortcutPicker extends PreferenceFragment implements Tunable {
 
     private final ArrayList<SelectablePreference> mSelectablePreferences = new ArrayList<>();
+    private CustomPreference mDefaultPreference;
+    private CustomPreference mNonePreference;
     private String mKey;
-    private SelectablePreference mDefaultPreference;
     private TunerService mTunerService;
     private HiddenPreference mHiddenPreference;
 
@@ -60,14 +65,32 @@ public class ShortcutPicker extends PreferenceFragment implements Tunable {
         mHiddenPreference.setIcon(R.drawable.ic_remove_circle);
         screen.addPreference(mHiddenPreference);
 
-        mDefaultPreference = new SelectablePreference(context);
-        mSelectablePreferences.add(mDefaultPreference);
-        mDefaultPreference.setTitle(R.string.lockscreen_default);
-        screen.addPreference(mDefaultPreference);
+        // True "none" preference
+        mNonePreference = new CustomPreference(context, LOCKSCREEN_SHORTCUT_NONE);
+        mSelectablePreferences.add(mNonePreference);
+        mNonePreference.setTitle(R.string.lockscreen_none);
+        mNonePreference.setIcon(R.drawable.ic_remove_circle);
+        screen.addPreference(mNonePreference);
+
+        // Default shortcuts (voice assist and camera)
+        mKey = getArguments().getString(ARG_PREFERENCE_ROOT);
         if (LOCKSCREEN_LEFT_BUTTON.equals(mKey)) {
-            mDefaultPreference.setIcon(context.getDrawable(R.drawable.ic_mic_26dp));
+            mDefaultPreference = new CustomPreference(context, LOCKSCREEN_SHORTCUT_VOICE_ASSIST);
+            mSelectablePreferences.add(mDefaultPreference);
+            if (canLaunchVoiceAssist()) {
+                mDefaultPreference.setTitle(R.string.accessibility_voice_assist_button);
+                mDefaultPreference.setIcon(R.drawable.ic_mic_26dp);
+            } else {
+                mDefaultPreference.setTitle(R.string.accessibility_phone_button);
+                mDefaultPreference.setIcon(R.drawable.ic_phone_24dp);
+            }
+            screen.addPreference(mDefaultPreference);
         } else {
-            mDefaultPreference.setIcon(context.getDrawable(R.drawable.ic_camera_alt_24dp));
+            mDefaultPreference = new CustomPreference(context, LOCKSCREEN_SHORTCUT_CAMERA);
+            mSelectablePreferences.add(mDefaultPreference);
+            mDefaultPreference.setTitle(R.string.accessibility_camera_button);
+            mDefaultPreference.setIcon(R.drawable.ic_camera_alt_24dp);
+            screen.addPreference(mDefaultPreference);
         }
 
         LauncherApps apps = getContext().getSystemService(LauncherApps.class);
@@ -111,6 +134,11 @@ public class ShortcutPicker extends PreferenceFragment implements Tunable {
         setPreferenceScreen(screen);
         mTunerService = Dependency.get(TunerService.class);
         mTunerService.addTunable(this, mKey);
+    }
+
+    private boolean canLaunchVoiceAssist() {
+        AssistManager mAssistManager = Dependency.get(AssistManager.class);
+        return mAssistManager.canVoiceAssistBeLaunchedFromKeyguard();
     }
 
     @Override
@@ -209,15 +237,17 @@ public class ShortcutPicker extends PreferenceFragment implements Tunable {
         }
     }
 
-    private static class HiddenPreference extends SelectablePreference {
+    private static class CustomPreference extends SelectablePreference {
+        private String mIdentifier;
 
-        public HiddenPreference(Context context) {
+        public CustomPreference(Context context, String id) {
             super(context);
+            mIdentifier = id;
         }
 
         @Override
         public String toString() {
-            return "none";
+            return mIdentifier;
         }
     }
 }
